@@ -33,7 +33,7 @@
 #include "thrift/generate/t_oop_generator.h"
 
 using std::map;
-using std::ofstream;
+using std::ostream;
 using std::ostringstream;
 using std::string;
 using std::stringstream;
@@ -116,10 +116,10 @@ public:
 
 private:
   /* file streams */
-  ofstream f_types_;
-  ofstream f_types_impl_;
-  ofstream f_header_;
-  ofstream f_service_;
+  ofstream_with_content_based_conditional_update f_types_;
+  ofstream_with_content_based_conditional_update f_types_impl_;
+  ofstream_with_content_based_conditional_update f_header_;
+  ofstream_with_content_based_conditional_update f_service_;
 
   /* namespace variables */
   string nspace;
@@ -145,8 +145,8 @@ private:
                        bool pointer = false,
                        bool constant = false,
                        bool reference = false);
-  void declare_local_variable(ofstream& out, t_type* ttype, string& base_name, bool for_hash_table);
-  void declore_local_variable_for_write(ofstream& out, t_type* ttype, string& base_name);
+  void declare_local_variable(ostream& out, t_type* ttype, string& base_name, bool for_hash_table);
+  void declore_local_variable_for_write(ostream& out, t_type* ttype, string& base_name);
 
   /* generation functions */
   void generate_const_initializer(string name,
@@ -159,51 +159,51 @@ private:
   void generate_service_processor(t_service* tservice);
   void generate_service_server(t_service* tservice);
   void generate_object(t_struct* tstruct);
-  void generate_struct_writer(ofstream& out,
+  void generate_struct_writer(ostream& out,
                               t_struct* tstruct,
                               string this_name,
                               string this_get = "",
                               bool is_function = true);
-  void generate_struct_reader(ofstream& out,
+  void generate_struct_reader(ostream& out,
                               t_struct* tstruct,
                               string this_name,
                               string this_get = "",
                               bool is_function = true);
 
-  void generate_serialize_field(ofstream& out,
+  void generate_serialize_field(ostream& out,
                                 t_field* tfield,
                                 string prefix,
                                 string suffix,
                                 int error_ret);
-  void generate_serialize_struct(ofstream& out, t_struct* tstruct, string prefix, int error_ret);
-  void generate_serialize_container(ofstream& out, t_type* ttype, string prefix, int error_ret);
-  void generate_serialize_map_element(ofstream& out,
+  void generate_serialize_struct(ostream& out, t_struct* tstruct, string prefix, int error_ret);
+  void generate_serialize_container(ostream& out, t_type* ttype, string prefix, int error_ret);
+  void generate_serialize_map_element(ostream& out,
                                       t_map* tmap,
                                       string key,
                                       string value,
                                       int error_ret);
-  void generate_serialize_set_element(ofstream& out, t_set* tset, string element, int error_ret);
-  void generate_serialize_list_element(ofstream& out,
+  void generate_serialize_set_element(ostream& out, t_set* tset, string element, int error_ret);
+  void generate_serialize_list_element(ostream& out,
                                        t_list* tlist,
                                        string list,
                                        string index,
                                        int error_ret);
 
-  void generate_deserialize_field(ofstream& out,
+  void generate_deserialize_field(ostream& out,
                                   t_field* tfield,
                                   string prefix,
                                   string suffix,
                                   int error_ret,
                                   bool allocate = true);
-  void generate_deserialize_struct(ofstream& out,
+  void generate_deserialize_struct(ostream& out,
                                    t_struct* tstruct,
                                    string prefix,
                                    int error_ret,
                                    bool allocate = true);
-  void generate_deserialize_container(ofstream& out, t_type* ttype, string prefix, int error_ret);
-  void generate_deserialize_map_element(ofstream& out, t_map* tmap, string prefix, int error_ret);
-  void generate_deserialize_set_element(ofstream& out, t_set* tset, string prefix, int error_ret);
-  void generate_deserialize_list_element(ofstream& out,
+  void generate_deserialize_container(ostream& out, t_type* ttype, string prefix, int error_ret);
+  void generate_deserialize_map_element(ostream& out, t_map* tmap, string prefix, int error_ret);
+  void generate_deserialize_set_element(ostream& out, t_set* tset, string prefix, int error_ret);
+  void generate_deserialize_list_element(ostream& out,
                                          t_list* tlist,
                                          string prefix,
                                          string index,
@@ -997,8 +997,8 @@ void t_c_glib_generator::generate_const_initializer(string name,
   if (type->is_struct() || type->is_xception()) {
     const vector<t_field*>& fields = ((t_struct*)type)->get_members();
     vector<t_field*>::const_iterator f_iter;
-    const map<t_const_value*, t_const_value*>& val = value->get_map();
-    map<t_const_value*, t_const_value*>::const_iterator v_iter;
+    const map<t_const_value*, t_const_value*, t_const_value::value_compare>& val = value->get_map();
+    map<t_const_value*, t_const_value*, t_const_value::value_compare>::const_iterator v_iter;
     ostringstream initializers;
 
     // initialize any constants that may be referenced by this initializer
@@ -1171,8 +1171,8 @@ void t_c_glib_generator::generate_const_initializer(string name,
   } else if (type->is_map()) {
     t_type* ktype = ((t_map*)type)->get_key_type();
     t_type* vtype = ((t_map*)type)->get_val_type();
-    const map<t_const_value*, t_const_value*>& val = value->get_map();
-    map<t_const_value*, t_const_value*>::const_iterator v_iter;
+    const map<t_const_value*, t_const_value*, t_const_value::value_compare>& val = value->get_map();
+    map<t_const_value*, t_const_value*, t_const_value::value_compare>::const_iterator v_iter;
     ostringstream initializers;
     ostringstream appenders;
 
@@ -3480,7 +3480,7 @@ void t_c_glib_generator::generate_object(t_struct* tstruct) {
 /**
  * Generates functions to write Thrift structures to a stream.
  */
-void t_c_glib_generator::generate_struct_writer(ofstream& out,
+void t_c_glib_generator::generate_struct_writer(ostream& out,
                                                 t_struct* tstruct,
                                                 string this_name,
                                                 string this_get,
@@ -3553,7 +3553,7 @@ void t_c_glib_generator::generate_struct_writer(ofstream& out,
 /**
  * Generates code to read Thrift structures from a stream.
  */
-void t_c_glib_generator::generate_struct_reader(ofstream& out,
+void t_c_glib_generator::generate_struct_reader(ostream& out,
                                                 t_struct* tstruct,
                                                 string this_name,
                                                 string this_get,
@@ -3690,7 +3690,7 @@ void t_c_glib_generator::generate_struct_reader(ofstream& out,
   indent(out) << "}" << endl << endl;
 }
 
-void t_c_glib_generator::generate_serialize_field(ofstream& out,
+void t_c_glib_generator::generate_serialize_field(ostream& out,
                                                   t_field* tfield,
                                                   string prefix,
                                                   string suffix,
@@ -3734,7 +3734,7 @@ void t_c_glib_generator::generate_serialize_field(ofstream& out,
         out << "double (protocol, " << name;
         break;
       case t_base_type::TYPE_STRING:
-        if (((t_base_type*)type)->is_binary()) {
+        if (type->is_binary()) {
           out << "binary (protocol, " << name << " ? ((GByteArray *) " << name << ")->data : NULL, "
               << name << " ? ((GByteArray *) " << name << ")->len : 0";
         } else {
@@ -3756,7 +3756,7 @@ void t_c_glib_generator::generate_serialize_field(ofstream& out,
   }
 }
 
-void t_c_glib_generator::generate_serialize_struct(ofstream& out,
+void t_c_glib_generator::generate_serialize_struct(ostream& out,
                                                    t_struct* tstruct,
                                                    string prefix,
                                                    int error_ret) {
@@ -3766,7 +3766,7 @@ void t_c_glib_generator::generate_serialize_struct(ofstream& out,
       << indent() << "xfer += ret;" << endl << endl;
 }
 
-void t_c_glib_generator::generate_serialize_container(ofstream& out,
+void t_c_glib_generator::generate_serialize_container(ostream& out,
                                                       t_type* ttype,
                                                       string prefix,
                                                       int error_ret) {
@@ -3923,7 +3923,7 @@ void t_c_glib_generator::generate_serialize_container(ofstream& out,
   scope_down(out);
 }
 
-void t_c_glib_generator::generate_serialize_map_element(ofstream& out,
+void t_c_glib_generator::generate_serialize_map_element(ostream& out,
                                                         t_map* tmap,
                                                         string key,
                                                         string value,
@@ -3935,7 +3935,7 @@ void t_c_glib_generator::generate_serialize_map_element(ofstream& out,
   generate_serialize_field(out, &vfield, "", "", error_ret);
 }
 
-void t_c_glib_generator::generate_serialize_set_element(ofstream& out,
+void t_c_glib_generator::generate_serialize_set_element(ostream& out,
                                                         t_set* tset,
                                                         string element,
                                                         int error_ret) {
@@ -3943,7 +3943,7 @@ void t_c_glib_generator::generate_serialize_set_element(ofstream& out,
   generate_serialize_field(out, &efield, "", "", error_ret);
 }
 
-void t_c_glib_generator::generate_serialize_list_element(ofstream& out,
+void t_c_glib_generator::generate_serialize_list_element(ostream& out,
                                                          t_list* tlist,
                                                          string list,
                                                          string index,
@@ -3975,7 +3975,7 @@ void t_c_glib_generator::generate_serialize_list_element(ofstream& out,
 }
 
 /* deserializes a field of any type. */
-void t_c_glib_generator::generate_deserialize_field(ofstream& out,
+void t_c_glib_generator::generate_deserialize_field(ostream& out,
                                                     t_field* tfield,
                                                     string prefix,
                                                     string suffix,
@@ -4010,7 +4010,7 @@ void t_c_glib_generator::generate_deserialize_field(ofstream& out,
       throw "compiler error: cannot serialize void field in a struct: " + name;
       break;
     case t_base_type::TYPE_STRING:
-      if (((t_base_type*)type)->is_binary()) {
+      if (type->is_binary()) {
         out << "binary (protocol, &data, &len";
       } else {
         out << "string (protocol, &" << name;
@@ -4042,7 +4042,7 @@ void t_c_glib_generator::generate_deserialize_field(ofstream& out,
         << endl;
 
     // load the byte array with the data
-    if (tbase == t_base_type::TYPE_STRING && ((t_base_type*)type)->is_binary()) {
+    if (tbase == t_base_type::TYPE_STRING && type->is_binary()) {
       indent(out) << name << " = g_byte_array_new();" << endl;
       indent(out) << "g_byte_array_append (" << name << ", (guint8 *) data, (guint) len);" << endl;
       indent(out) << "g_free (data);" << endl;
@@ -4061,14 +4061,14 @@ void t_c_glib_generator::generate_deserialize_field(ofstream& out,
   // if the type is not required and this is a thrift struct (no prefix),
   // set the isset variable.  if the type is required, then set the
   // local variable indicating the value was set, so that we can do    // validation later.
-  if (tfield->get_req() != t_field::T_REQUIRED && prefix != "") {
+  if (prefix != "" && tfield->get_req() != t_field::T_REQUIRED) {
     indent(out) << prefix << "__isset_" << tfield->get_name() << suffix << " = TRUE;" << endl;
-  } else if (tfield->get_req() == t_field::T_REQUIRED && prefix != "") {
+  } else if (prefix != "" && tfield->get_req() == t_field::T_REQUIRED) {
     indent(out) << "isset_" << tfield->get_name() << " = TRUE;" << endl;
   }
 }
 
-void t_c_glib_generator::generate_deserialize_struct(ofstream& out,
+void t_c_glib_generator::generate_deserialize_struct(ostream& out,
                                                      t_struct* tstruct,
                                                      string prefix,
                                                      int error_ret,
@@ -4101,7 +4101,7 @@ void t_c_glib_generator::generate_deserialize_struct(ofstream& out,
   out << indent() << "}" << endl << indent() << "xfer += ret;" << endl;
 }
 
-void t_c_glib_generator::generate_deserialize_container(ofstream& out,
+void t_c_glib_generator::generate_deserialize_container(ostream& out,
                                                         t_type* ttype,
                                                         string prefix,
                                                         int error_ret) {
@@ -4202,7 +4202,7 @@ void t_c_glib_generator::generate_deserialize_container(ofstream& out,
   scope_down(out);
 }
 
-void t_c_glib_generator::declare_local_variable(ofstream& out, t_type* ttype, string& name, bool for_hash_table) {
+void t_c_glib_generator::declare_local_variable(ostream& out, t_type* ttype, string& name, bool for_hash_table) {
   string tname = type_name(ttype);
 
   /* If the given type is a typedef, find its underlying type so we
@@ -4226,7 +4226,7 @@ void t_c_glib_generator::declare_local_variable(ofstream& out, t_type* ttype, st
   }
 }
 
-void t_c_glib_generator::declore_local_variable_for_write(ofstream& out,
+void t_c_glib_generator::declore_local_variable_for_write(ostream& out,
                                                           t_type* ttype,
                                                           string& name) {
   string tname = type_name(ttype);
@@ -4236,7 +4236,7 @@ void t_c_glib_generator::declore_local_variable_for_write(ofstream& out,
   out << indent() << tname << ptr << name << init_val << ";" << endl;
 }
 
-void t_c_glib_generator::generate_deserialize_map_element(ofstream& out,
+void t_c_glib_generator::generate_deserialize_map_element(ostream& out,
                                                           t_map* tmap,
                                                           string prefix,
                                                           int error_ret) {
@@ -4270,7 +4270,7 @@ void t_c_glib_generator::generate_deserialize_map_element(ofstream& out,
   indent_down();
 }
 
-void t_c_glib_generator::generate_deserialize_set_element(ofstream& out,
+void t_c_glib_generator::generate_deserialize_set_element(ostream& out,
                                                           t_set* tset,
                                                           string prefix,
                                                           int error_ret) {
@@ -4290,7 +4290,7 @@ void t_c_glib_generator::generate_deserialize_set_element(ofstream& out,
   indent_down();
 }
 
-void t_c_glib_generator::generate_deserialize_list_element(ofstream& out,
+void t_c_glib_generator::generate_deserialize_list_element(ostream& out,
                                                            t_list* tlist,
                                                            string prefix,
                                                            string index,

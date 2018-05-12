@@ -20,7 +20,9 @@
 #include <map>
 #include <string>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <limits>
 #include <vector>
 #include <list>
 #include <cassert>
@@ -32,7 +34,7 @@
 #include "thrift/version.h"
 
 using std::map;
-using std::ofstream;
+using std::ostream;
 using std::ostringstream;
 using std::string;
 using std::stringstream;
@@ -58,6 +60,7 @@ public:
     gen_node_ = false;
     gen_jquery_ = false;
     gen_ts_ = false;
+    gen_es6_ = false;
 
     bool with_ns_ = false;
 
@@ -70,6 +73,8 @@ public:
         gen_ts_ = true;
       } else if( iter->first.compare("with_ns") == 0) {
         with_ns_ = true;
+      } else if( iter->first.compare("es6") == 0) {
+        gen_es6_ = true;
       } else {
         throw "unknown option js:" + iter->first;
       }
@@ -77,6 +82,10 @@ public:
 
     if (gen_node_ && gen_ts_) {
       throw "Invalid switch: [-gen js:node,ts] options not compatible";
+    }
+
+    if (gen_es6_ && gen_jquery_) {
+      throw "Invalid switch: [-gen js:es6,jquery] options not compatible";
     }
 
     if (gen_node_ && gen_jquery_) {
@@ -126,12 +135,12 @@ public:
    * Structs!
    */
   void generate_js_struct(t_struct* tstruct, bool is_exception);
-  void generate_js_struct_definition(std::ofstream& out,
+  void generate_js_struct_definition(std::ostream& out,
                                      t_struct* tstruct,
                                      bool is_xception = false,
                                      bool is_exported = true);
-  void generate_js_struct_reader(std::ofstream& out, t_struct* tstruct);
-  void generate_js_struct_writer(std::ofstream& out, t_struct* tstruct);
+  void generate_js_struct_reader(std::ostream& out, t_struct* tstruct);
+  void generate_js_struct_writer(std::ostream& out, t_struct* tstruct);
   void generate_js_function_helpers(t_function* tfunction);
 
   /**
@@ -148,37 +157,37 @@ public:
    * Serialization constructs
    */
 
-  void generate_deserialize_field(std::ofstream& out,
+  void generate_deserialize_field(std::ostream& out,
                                   t_field* tfield,
                                   std::string prefix = "",
                                   bool inclass = false);
 
-  void generate_deserialize_struct(std::ofstream& out, t_struct* tstruct, std::string prefix = "");
+  void generate_deserialize_struct(std::ostream& out, t_struct* tstruct, std::string prefix = "");
 
-  void generate_deserialize_container(std::ofstream& out, t_type* ttype, std::string prefix = "");
+  void generate_deserialize_container(std::ostream& out, t_type* ttype, std::string prefix = "");
 
-  void generate_deserialize_set_element(std::ofstream& out, t_set* tset, std::string prefix = "");
+  void generate_deserialize_set_element(std::ostream& out, t_set* tset, std::string prefix = "");
 
-  void generate_deserialize_map_element(std::ofstream& out, t_map* tmap, std::string prefix = "");
+  void generate_deserialize_map_element(std::ostream& out, t_map* tmap, std::string prefix = "");
 
-  void generate_deserialize_list_element(std::ofstream& out,
+  void generate_deserialize_list_element(std::ostream& out,
                                          t_list* tlist,
                                          std::string prefix = "");
 
-  void generate_serialize_field(std::ofstream& out, t_field* tfield, std::string prefix = "");
+  void generate_serialize_field(std::ostream& out, t_field* tfield, std::string prefix = "");
 
-  void generate_serialize_struct(std::ofstream& out, t_struct* tstruct, std::string prefix = "");
+  void generate_serialize_struct(std::ostream& out, t_struct* tstruct, std::string prefix = "");
 
-  void generate_serialize_container(std::ofstream& out, t_type* ttype, std::string prefix = "");
+  void generate_serialize_container(std::ostream& out, t_type* ttype, std::string prefix = "");
 
-  void generate_serialize_map_element(std::ofstream& out,
+  void generate_serialize_map_element(std::ostream& out,
                                       t_map* tmap,
                                       std::string kiter,
                                       std::string viter);
 
-  void generate_serialize_set_element(std::ofstream& out, t_set* tmap, std::string iter);
+  void generate_serialize_set_element(std::ostream& out, t_set* tmap, std::string iter);
 
-  void generate_serialize_list_element(std::ofstream& out, t_list* tlist, std::string iter);
+  void generate_serialize_list_element(std::ostream& out, t_list* tlist, std::string iter);
 
   /**
    * Helper rendering functions
@@ -328,6 +337,11 @@ private:
   bool gen_ts_;
 
   /**
+   * True if we should generate ES6 code, i.e. with Promises
+   */
+  bool gen_es6_;
+
+  /**
    * The name of the defined module(s), for TypeScript Definition Files.
    */
   string ts_module_;
@@ -340,10 +354,10 @@ private:
   /**
    * File streams
    */
-  std::ofstream f_types_;
-  std::ofstream f_service_;
-  std::ofstream f_types_ts_;
-  std::ofstream f_service_ts_;
+  ofstream_with_content_based_conditional_update f_types_;
+  ofstream_with_content_based_conditional_update f_service_;
+  ofstream_with_content_based_conditional_update f_types_ts_;
+  ofstream_with_content_based_conditional_update f_service_ts_;
 };
 
 /**
@@ -370,7 +384,7 @@ void t_js_generator::init_generator() {
   // Print header
   f_types_ << autogen_comment();
 
-  if (gen_node_ && no_ns_) {
+  if ((gen_node_ || gen_es6_) && no_ns_) {
     f_types_ << "\"use strict\";" << endl << endl;
   }
 
@@ -408,10 +422,13 @@ void t_js_generator::init_generator() {
  */
 string t_js_generator::js_includes() {
   if (gen_node_) {
-    return string(
+    string result = string(
         "var thrift = require('thrift');\n"
-        "var Thrift = thrift.Thrift;\n"
-        "var Q = thrift.Q;\n");
+        "var Thrift = thrift.Thrift;\n");
+    if (!gen_es6_) {
+      result += "var Q = thrift.Q;\n";
+    }
+    return result;
   }
 
   return "";
@@ -549,7 +566,7 @@ string t_js_generator::render_const_value(t_type* type, t_const_value* value) {
       if (value->get_type() == t_const_value::CV_INTEGER) {
         out << value->get_integer();
       } else {
-        out << value->get_double();
+        out << emit_double_as_string(value->get_double());
       }
       break;
     default:
@@ -558,12 +575,12 @@ string t_js_generator::render_const_value(t_type* type, t_const_value* value) {
   } else if (type->is_enum()) {
     out << value->get_integer();
   } else if (type->is_struct() || type->is_xception()) {
-    out << "new " << js_type_namespace(type->get_program()) << type->get_name() << "({" << endl;
+    out << "new " << js_type_namespace(type->get_program()) << type->get_name() << "({";
     indent_up();
     const vector<t_field*>& fields = ((t_struct*)type)->get_members();
     vector<t_field*>::const_iterator f_iter;
-    const map<t_const_value*, t_const_value*>& val = value->get_map();
-    map<t_const_value*, t_const_value*>::const_iterator v_iter;
+    const map<t_const_value*, t_const_value*, t_const_value::value_compare>& val = value->get_map();
+    map<t_const_value*, t_const_value*, t_const_value::value_compare>::const_iterator v_iter;
     for (v_iter = val.begin(); v_iter != val.end(); ++v_iter) {
       t_type* field_type = NULL;
       for (f_iter = fields.begin(); f_iter != fields.end(); ++f_iter) {
@@ -576,12 +593,12 @@ string t_js_generator::render_const_value(t_type* type, t_const_value* value) {
       }
       if (v_iter != val.begin())
         out << ",";
-      out << render_const_value(g_type_string, v_iter->first);
+      out << endl << indent() << render_const_value(g_type_string, v_iter->first);
       out << " : ";
       out << render_const_value(field_type, v_iter->second);
     }
-
-    out << "})";
+    indent_down();
+    out << endl << indent() << "})";
   } else if (type->is_map()) {
     t_type* ktype = ((t_map*)type)->get_key_type();
 
@@ -589,8 +606,8 @@ string t_js_generator::render_const_value(t_type* type, t_const_value* value) {
     out << "{" << endl;
     indent_up();
 
-    const map<t_const_value*, t_const_value*>& val = value->get_map();
-    map<t_const_value*, t_const_value*>::const_iterator v_iter;
+    const map<t_const_value*, t_const_value*, t_const_value::value_compare>& val = value->get_map();
+    map<t_const_value*, t_const_value*, t_const_value::value_compare>::const_iterator v_iter;
     for (v_iter = val.begin(); v_iter != val.end(); ++v_iter) {
       if (v_iter != val.begin())
         out << "," << endl;
@@ -600,9 +617,8 @@ string t_js_generator::render_const_value(t_type* type, t_const_value* value) {
       out << " : ";
       out << render_const_value(vtype, v_iter->second);
     }
-
     indent_down();
-    out << endl << "}";
+    out << endl << indent() << "}";
   } else if (type->is_list() || type->is_set()) {
     t_type* etype;
     if (type->is_list()) {
@@ -670,7 +686,7 @@ t_type* t_js_generator::get_contained_type(t_type* t) {
  *
  * @param tstruct The struct definition
  */
-void t_js_generator::generate_js_struct_definition(ofstream& out,
+void t_js_generator::generate_js_struct_definition(ostream& out,
                                                    t_struct* tstruct,
                                                    bool is_exception,
                                                    bool is_exported) {
@@ -832,7 +848,7 @@ void t_js_generator::generate_js_struct_definition(ofstream& out,
 /**
  * Generates the read() method for a struct
  */
-void t_js_generator::generate_js_struct_reader(ofstream& out, t_struct* tstruct) {
+void t_js_generator::generate_js_struct_reader(ostream& out, t_struct* tstruct) {
   const vector<t_field*>& fields = tstruct->get_members();
   vector<t_field*>::const_iterator f_iter;
 
@@ -911,7 +927,7 @@ void t_js_generator::generate_js_struct_reader(ofstream& out, t_struct* tstruct)
 /**
  * Generates the write() method for a struct
  */
-void t_js_generator::generate_js_struct_writer(ofstream& out, t_struct* tstruct) {
+void t_js_generator::generate_js_struct_writer(ostream& out, t_struct* tstruct) {
   string name = tstruct->get_name();
   const vector<t_field*>& fields = tstruct->get_members();
   vector<t_field*>::const_iterator f_iter;
@@ -966,7 +982,7 @@ void t_js_generator::generate_service(t_service* tservice) {
 
   f_service_ << autogen_comment();
 
-  if (gen_node_ && no_ns_) {
+  if ((gen_node_ || gen_es6_) && no_ns_) {
     f_service_ << "\"use strict\";" << endl << endl;
   }
 
@@ -1374,19 +1390,42 @@ void t_js_generator::generate_service_client(t_service* tservice) {
 
     // Open function
     f_service_ << js_namespace(tservice->get_program()) << service_name_ << "Client.prototype."
-               << function_signature(*f_iter, "", true) << " {" << endl;
+               << function_signature(*f_iter, "", !gen_es6_) << " {" << endl;
 
     indent_up();
 
     if (gen_ts_) {
-      f_service_ts_ << ts_print_doc(*f_iter) <<
-          // function definition without callback
-          ts_indent() << ts_function_signature(*f_iter, false) << endl << ts_print_doc(*f_iter) <<
-          // overload with callback
-          ts_indent() << ts_function_signature(*f_iter, true) << endl;
+      // function definition without callback
+      f_service_ts_ << ts_print_doc(*f_iter) << ts_indent() << ts_function_signature(*f_iter, false) << endl;
+
+      if (!gen_es6_) {
+        // overload with callback
+        f_service_ts_ << ts_print_doc(*f_iter) << ts_indent() << ts_function_signature(*f_iter, true) << endl;
+      }
     }
 
-    if (gen_node_) { // Node.js output      ./gen-nodejs
+    if (gen_es6_ && gen_node_) {
+      f_service_ << indent() << "this._seqid = this.new_seqid();" << endl;
+      f_service_ << indent() << "var self = this;" << endl << indent()
+                 << "return new Promise(function(resolve, reject) {" << endl;
+      indent_up();
+      f_service_ << indent() << "self._reqs[self.seqid()] = function(error, result) {" << endl;
+      indent_up();
+      indent(f_service_) << "if (error) {" << endl;
+      indent_up();
+      indent(f_service_) << "reject(error);" << endl;
+      indent_down();
+      indent(f_service_) << "} else {" << endl;
+      indent_up();
+      indent(f_service_) << "resolve(result);" << endl;
+      indent_down();
+      indent(f_service_) << "}" << endl;
+      indent_down();
+      indent(f_service_) << "};" << endl;
+      f_service_ << indent() << "self.send_" << funname << "(" << arglist << ");" << endl;
+      indent_down();
+      f_service_ << indent() << "});" << endl;
+    } else if (gen_node_) { // Node.js output      ./gen-nodejs
       f_service_ << indent() << "this._seqid = this.new_seqid();" << endl << indent()
                  << "if (callback === undefined) {" << endl;
       indent_up();
@@ -1413,6 +1452,23 @@ void t_js_generator::generate_service_client(t_service* tservice) {
                  << "this.send_" << funname << "(" << arglist << ");" << endl;
       indent_down();
       indent(f_service_) << "}" << endl;
+    } else if (gen_es6_) {
+      f_service_ << indent() << "var self = this;" << endl << indent()
+                 << "return new Promise(function(resolve, reject) {" << endl;
+      indent_up();
+      f_service_ << indent() << "self.send_" << funname << "(" << arglist
+                 << (arglist.empty() ? "" : ", ") << "function(error, result) {" << endl;
+      indent_up();
+      f_service_ << indent() << "if (error) {" << endl;
+      f_service_ << indent() << "  reject(error);" << endl;
+      f_service_ << indent() << "} else {" << endl;
+      f_service_ << indent() << "  resolve(result);" << endl;
+      f_service_ << indent() << "}" << endl;
+      indent_down();
+      f_service_ << indent() << "});" << endl;
+      indent_down();
+      f_service_ << indent() << "});" << endl;
+
     } else if (gen_jquery_) { // jQuery output       ./gen-js
       f_service_ << indent() << "if (callback === undefined) {" << endl;
       indent_up();
@@ -1483,11 +1539,20 @@ void t_js_generator::generate_service_client(t_service* tservice) {
                  << "', " << messageType << ", this.seqid);" << endl;
     }
 
-    f_service_ << indent() << "var args = new " << argsname << "();" << endl;
-
-    for (fld_iter = fields.begin(); fld_iter != fields.end(); ++fld_iter) {
-      f_service_ << indent() << "args." << (*fld_iter)->get_name() << " = "
-                 << (*fld_iter)->get_name() << ";" << endl;
+    if (fields.size() > 0){
+      f_service_ << indent() << "var params = {" << endl;
+      for (fld_iter = fields.begin(); fld_iter != fields.end(); ++fld_iter) {
+        f_service_ << indent() << indent() << (*fld_iter)->get_name() << ": " << (*fld_iter)->get_name();
+        if (fld_iter != fields.end()-1) {
+          f_service_ << "," << endl;
+        } else {
+          f_service_ << endl;
+        }
+      }
+      f_service_ << indent() << "};" << endl;
+      f_service_ << indent() << "var args = new " << argsname << "(params);" << endl;
+    } else {
+      f_service_ << indent() << "var args = new " << argsname << "();" << endl;
     }
 
     // Write to the stream
@@ -1499,18 +1564,41 @@ void t_js_generator::generate_service_client(t_service* tservice) {
     } else {
       if (gen_jquery_) {
         f_service_ << indent() << "return this.output.getTransport().flush(callback);" << endl;
+      } else if (gen_es6_) {
+        f_service_ << indent() << "var self = this;" << endl;
+        if((*f_iter)->is_oneway()) {
+          f_service_ << indent() << "this.output.getTransport().flush(true, null);" << endl;
+          f_service_ << indent() << "callback();" << endl;
+        } else {
+          f_service_ << indent() << "this.output.getTransport().flush(true, function() {" << endl;
+          indent_up();
+          f_service_ << indent() << "var error = null, result = null;" << endl;
+          f_service_ << indent() << "try {" << endl;
+          f_service_ << indent() << "  result = self.recv_" << funname << "();" << endl;
+          f_service_ << indent() << "} catch (e) {" << endl;
+          f_service_ << indent() << "  error = e;" << endl;
+          f_service_ << indent() << "}" << endl;
+          f_service_ << indent() << "callback(error, result);" << endl;
+          indent_down();
+          f_service_ << indent() << "});";
+        }
       } else {
         f_service_ << indent() << "if (callback) {" << endl;
-        f_service_ << indent() << "  var self = this;" << endl;
-        f_service_ << indent() << "  this.output.getTransport().flush(true, function() {" << endl;
-        f_service_ << indent() << "    var result = null;" << endl;
-        f_service_ << indent() << "    try {" << endl;
-        f_service_ << indent() << "      result = self.recv_" << funname << "();" << endl;
-        f_service_ << indent() << "    } catch (e) {" << endl;
-        f_service_ << indent() << "      result = e;" << endl;
-        f_service_ << indent() << "    }" << endl;
-        f_service_ << indent() << "    callback(result);" << endl;
-        f_service_ << indent() << "  });" << endl;
+        if((*f_iter)->is_oneway()) {
+          f_service_ << indent() << "  this.output.getTransport().flush(true, null);" << endl;
+          f_service_ << indent() << "  callback();" << endl;
+        } else {
+          f_service_ << indent() << "  var self = this;" << endl;
+          f_service_ << indent() << "  this.output.getTransport().flush(true, function() {" << endl;
+          f_service_ << indent() << "    var result = null;" << endl;
+          f_service_ << indent() << "    try {" << endl;
+          f_service_ << indent() << "      result = self.recv_" << funname << "();" << endl;
+          f_service_ << indent() << "    } catch (e) {" << endl;
+          f_service_ << indent() << "      result = e;" << endl;
+          f_service_ << indent() << "    }" << endl;
+          f_service_ << indent() << "    callback(result);" << endl;
+          f_service_ << indent() << "  });" << endl;
+        }
         f_service_ << indent() << "} else {" << endl;
         f_service_ << indent() << "  return this.output.getTransport().flush();" << endl;
         f_service_ << indent() << "}" << endl;
@@ -1624,7 +1712,7 @@ std::string t_js_generator::render_recv_return(std::string var) {
 /**
  * Deserializes a field of any type.
  */
-void t_js_generator::generate_deserialize_field(ofstream& out,
+void t_js_generator::generate_deserialize_field(ostream& out,
                                                 t_field* tfield,
                                                 string prefix,
                                                 bool inclass) {
@@ -1651,7 +1739,7 @@ void t_js_generator::generate_deserialize_field(ofstream& out,
         throw "compiler error: cannot serialize void field in a struct: " + name;
         break;
       case t_base_type::TYPE_STRING:
-        out << (((t_base_type*)type)->is_binary() ? "readBinary()" : "readString()");
+        out << (type->is_binary() ? "readBinary()" : "readString()");
         break;
       case t_base_type::TYPE_BOOL:
         out << "readBool()";
@@ -1696,12 +1784,12 @@ void t_js_generator::generate_deserialize_field(ofstream& out,
  * buffer for deserialization, and that there is a variable protocol which
  * is a reference to a TProtocol serialization object.
  */
-void t_js_generator::generate_deserialize_struct(ofstream& out, t_struct* tstruct, string prefix) {
+void t_js_generator::generate_deserialize_struct(ostream& out, t_struct* tstruct, string prefix) {
   out << indent() << prefix << " = new " << js_type_namespace(tstruct->get_program())
       << tstruct->get_name() << "();" << endl << indent() << prefix << ".read(input);" << endl;
 }
 
-void t_js_generator::generate_deserialize_container(ofstream& out, t_type* ttype, string prefix) {
+void t_js_generator::generate_deserialize_container(ostream& out, t_type* ttype, string prefix) {
   string size = tmp("_size");
   string ktype = tmp("_ktype");
   string vtype = tmp("_vtype");
@@ -1775,7 +1863,7 @@ void t_js_generator::generate_deserialize_container(ofstream& out, t_type* ttype
 /**
  * Generates code to deserialize a map
  */
-void t_js_generator::generate_deserialize_map_element(ofstream& out, t_map* tmap, string prefix) {
+void t_js_generator::generate_deserialize_map_element(ostream& out, t_map* tmap, string prefix) {
   string key = tmp("key");
   string val = tmp("val");
   t_field fkey(tmap->get_key_type(), key);
@@ -1790,7 +1878,7 @@ void t_js_generator::generate_deserialize_map_element(ofstream& out, t_map* tmap
   indent(out) << prefix << "[" << key << "] = " << val << ";" << endl;
 }
 
-void t_js_generator::generate_deserialize_set_element(ofstream& out, t_set* tset, string prefix) {
+void t_js_generator::generate_deserialize_set_element(ostream& out, t_set* tset, string prefix) {
   string elem = tmp("elem");
   t_field felem(tset->get_elem_type(), elem);
 
@@ -1801,7 +1889,7 @@ void t_js_generator::generate_deserialize_set_element(ofstream& out, t_set* tset
   indent(out) << prefix << ".push(" << elem << ");" << endl;
 }
 
-void t_js_generator::generate_deserialize_list_element(ofstream& out,
+void t_js_generator::generate_deserialize_list_element(ostream& out,
                                                        t_list* tlist,
                                                        string prefix) {
   string elem = tmp("elem");
@@ -1820,7 +1908,7 @@ void t_js_generator::generate_deserialize_list_element(ofstream& out,
  * @param tfield The field to serialize
  * @param prefix Name to prepend to field name
  */
-void t_js_generator::generate_serialize_field(ofstream& out, t_field* tfield, string prefix) {
+void t_js_generator::generate_serialize_field(ostream& out, t_field* tfield, string prefix) {
   t_type* type = get_true_type(tfield->get_type());
 
   // Do nothing for void types
@@ -1849,7 +1937,7 @@ void t_js_generator::generate_serialize_field(ofstream& out, t_field* tfield, st
         throw "compiler error: cannot serialize void field in a struct: " + name;
         break;
       case t_base_type::TYPE_STRING:
-        out << (((t_base_type*)type)->is_binary() ? "writeBinary(" : "writeString(") << name << ")";
+        out << (type->is_binary() ? "writeBinary(" : "writeString(") << name << ")";
         break;
       case t_base_type::TYPE_BOOL:
         out << "writeBool(" << name << ")";
@@ -1891,7 +1979,7 @@ void t_js_generator::generate_serialize_field(ofstream& out, t_field* tfield, st
  * @param tstruct The struct to serialize
  * @param prefix  String prefix to attach to all fields
  */
-void t_js_generator::generate_serialize_struct(ofstream& out, t_struct* tstruct, string prefix) {
+void t_js_generator::generate_serialize_struct(ostream& out, t_struct* tstruct, string prefix) {
   (void)tstruct;
   indent(out) << prefix << ".write(output);" << endl;
 }
@@ -1899,7 +1987,7 @@ void t_js_generator::generate_serialize_struct(ofstream& out, t_struct* tstruct,
 /**
  * Writes out a container
  */
-void t_js_generator::generate_serialize_container(ofstream& out, t_type* ttype, string prefix) {
+void t_js_generator::generate_serialize_container(ostream& out, t_type* ttype, string prefix) {
   if (ttype->is_map()) {
     indent(out) << "output.writeMapBegin(" << type_to_enum(((t_map*)ttype)->get_key_type()) << ", "
                 << type_to_enum(((t_map*)ttype)->get_val_type()) << ", "
@@ -1962,7 +2050,7 @@ void t_js_generator::generate_serialize_container(ofstream& out, t_type* ttype, 
  * Serializes the members of a map.
  *
  */
-void t_js_generator::generate_serialize_map_element(ofstream& out,
+void t_js_generator::generate_serialize_map_element(ostream& out,
                                                     t_map* tmap,
                                                     string kiter,
                                                     string viter) {
@@ -1976,7 +2064,7 @@ void t_js_generator::generate_serialize_map_element(ofstream& out,
 /**
  * Serializes the members of a set.
  */
-void t_js_generator::generate_serialize_set_element(ofstream& out, t_set* tset, string iter) {
+void t_js_generator::generate_serialize_set_element(ostream& out, t_set* tset, string iter) {
   t_field efield(tset->get_elem_type(), iter);
   generate_serialize_field(out, &efield);
 }
@@ -1984,7 +2072,7 @@ void t_js_generator::generate_serialize_set_element(ofstream& out, t_set* tset, 
 /**
  * Serializes the members of a list.
  */
-void t_js_generator::generate_serialize_list_element(ofstream& out, t_list* tlist, string iter) {
+void t_js_generator::generate_serialize_list_element(ostream& out, t_list* tlist, string iter) {
   t_field efield(tlist->get_elem_type(), iter);
   generate_serialize_field(out, &efield);
 }
@@ -2218,15 +2306,20 @@ std::string t_js_generator::ts_function_signature(t_function* tfunction, bool in
   }
 
   if (include_callback) {
-    str += "callback: Function): ";
+    str += "callback: (data: " + ts_get_type(tfunction->get_returntype()) + ")=>void): ";
 
     if (gen_jquery_) {
-      str += "JQueryXHR;";
+      str += "JQueryPromise<" + ts_get_type(tfunction->get_returntype()) +">;";
     } else {
       str += "void;";
     }
   } else {
-    str += "): " + ts_get_type(tfunction->get_returntype()) + ";";
+    if (gen_es6_) {
+      str += "): Promise<" + ts_get_type(tfunction->get_returntype()) + ">;";
+    }
+    else {
+      str += "): " + ts_get_type(tfunction->get_returntype()) + ";";
+    }
   }
 
   return str;
@@ -2270,4 +2363,5 @@ THRIFT_REGISTER_GENERATOR(js,
                           "    jquery:          Generate jQuery compatible code.\n"
                           "    node:            Generate node.js compatible code.\n"
                           "    ts:              Generate TypeScript definition files.\n"
-                          "    with_ns:         Create global namespace objects when using node.js\n")
+                          "    with_ns:         Create global namespace objects when using node.js\n"
+                          "    es6:             Create ES6 code with Promises\n")
